@@ -1,0 +1,12 @@
+# Local Armbian build tree, if cloned alongside for local builds
+/armbian-build/
+/build/
+# Build outputs
+*.img
+*.img.xz
+*.img.sha
+out/
+output/
+# OS cruft
+.DS_Store
+Thumbs.db

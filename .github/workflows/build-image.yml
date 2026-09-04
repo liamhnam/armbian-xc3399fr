@@ -1,0 +1,141 @@
+name: Build Armbian image (XC3399FR)
+
+# Builds a full Armbian image for the Xiangcheng XC3399FR by overlaying this
+# repo's userpatches/ (board config + device tree) onto a pinned checkout of
+# armbian/build, then running the stock compile.sh. Nothing in the Armbian
+# framework is modified - the board is added the officially supported way.
+
+on:
+  push:
+    branches: [main]
+    paths:
+      - 'userpatches/**'
+      - '.github/workflows/build-image.yml'
+    # Cutting a tag like v1.0.0 builds and publishes a GitHub Release.
+    tags:
+      - 'v*'
+  pull_request:
+    paths:
+      - 'userpatches/**'
+  workflow_dispatch:
+    inputs:
+      release:
+        description: 'Debian/Ubuntu release'
+        default: 'trixie'
+        type: choice
+        options: [trixie, bookworm, noble, jammy]
+      build_minimal:
+        description: 'Minimal CLI image (no desktop)'
+        default: 'yes'
+        type: choice
+        options: ['yes', 'no']
+
+# Let a newer push cancel an in-flight build of the same ref.
+concurrency:
+  group: build-${{ github.ref }}
+  cancel-in-progress: true
+
+env:
+  # Pin the Armbian framework for reproducible images. Bump deliberately.
+  ARMBIAN_REPO: 'https://github.com/armbian/build'
+  ARMBIAN_REF: 'fc4623bc69888d37eecc1e4026286f634a5258e1'
+  BOARD: 'xc3399fr'
+  BRANCH: 'current'
+
+jobs:
+  build:
+    runs-on: ubuntu-24.04
+    # The kernel compile alone runs ~40 min on the free runners; give headroom.
+    timeout-minutes: 330
+
+    steps:
+      - name: Checkout this board port
+        uses: actions/checkout@v4
+        with:
+          path: board-port
+
+      # Armbian needs ~30 GB; the stock runner ships with far less free.
+      - name: Free up disk space
+        run: |
+          set -euo pipefail
+          echo "Before:"; df -h /
+          sudo rm -rf /usr/local/lib/android /usr/share/dotnet /opt/ghc \
+                      /usr/local/.ghcup /usr/share/swift /usr/local/share/boost \
+                      "$AGENT_TOOLSDIRECTORY" || true
+          sudo docker image prune --all --force || true
+          echo "After:"; df -h /
+
+      - name: Checkout Armbian build framework (pinned)
+        run: |
+          set -euo pipefail
+          git clone --filter=blob:none "$ARMBIAN_REPO" armbian-build
+          cd armbian-build
+          git checkout "$ARMBIAN_REF"
+          echo "Armbian framework at $(git rev-parse --short HEAD)"
+
+      # This is the whole trick: the board config and device tree live in this
+      # repo's userpatches/, and Armbian discovers boards and DTS from both
+      # config/boards + userpatches/config/boards and .../kernel/archive/.../dt.
+      - name: Overlay board port into userpatches
+        run: |
+          set -euo pipefail
+          mkdir -p armbian-build/userpatches
+          cp -rv board-port/userpatches/. armbian-build/userpatches/
+          echo "== board config =="
+          cat armbian-build/userpatches/config/boards/${BOARD}.csc
+          echo "== device tree present =="
+          ls -l armbian-build/userpatches/kernel/archive/rockchip64-6.18/dt/
+
+      - name: Build image
+        working-directory: armbian-build
+        run: |
+          set -euo pipefail
+          ./compile.sh build \
+            BOARD="${BOARD}" \
+            BRANCH="${BRANCH}" \
+            RELEASE="${{ github.event.inputs.release || 'trixie' }}" \
+            BUILD_MINIMAL="${{ github.event.inputs.build_minimal || 'yes' }}" \
+            BUILD_DESKTOP=no \
+            KERNEL_CONFIGURE=no \
+            COMPRESS_OUTPUTIMAGE=sha,xz \
+            SHARE_LOG=no \
+            EXPERT=yes
+
+      - name: Collect artifacts
+        id: collect
+        run: |
+          set -euo pipefail
+          mkdir -p out
+          cp -v armbian-build/output/images/*.img.xz out/ 2>/dev/null || \
+          cp -v armbian-build/output/images/*.img    out/ 2>/dev/null || true
+          cp -v armbian-build/output/images/*.sha    out/ 2>/dev/null || true
+          cp -v armbian-build/output/images/*.txt    out/ 2>/dev/null || true
+          echo "Artifacts:"; ls -lh out/
+          # expose the image name for the release step
+          IMG=$(cd out && ls *.img.xz *.img 2>/dev/null | head -1)
+          echo "image_name=${IMG}" >> "$GITHUB_OUTPUT"
+
+      - name: Upload build artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: armbian-${{ env.BOARD }}-image
+          path: out/*
+          if-no-files-found: error
+          retention-days: 30
+
+      - name: Publish GitHub Release (on tag)
+        if: startsWith(github.ref, 'refs/tags/')
+        uses: softprops/action-gh-release@v2
+        with:
+          files: out/*
+          generate_release_notes: true
+          body: |
+            Armbian image for the **Xiangcheng XC3399FR** (RK3399).
+
+            - Board: `${{ env.BOARD }}`  ·  Kernel branch: `${{ env.BRANCH }}`
+            - Armbian framework pinned at `${{ env.ARMBIAN_REF }}`
+            - Flash the `.img.xz` with Etcher/Raspberry Pi Imager, verify against the `.sha`.
+
+            After first boot you can move the system to a USB SSD with
+            `armbian-install` → *Boot from eMMC, system on this disk*.
+            See the README for the mandatory USB3 port note.
