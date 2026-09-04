@@ -1,5 +1,9 @@
 # Armbian for the Xiangcheng XC3399FR v1.1a
 
+<p align="center">
+  <img src="assets/xc3399fr.png" alt="Xiangcheng XC3399FR RK3399 board" width="640">
+</p>
+
 A production-ready [Armbian](https://www.armbian.com/) board port for the
 **Xiangcheng XC3399FR v1.1a** industrial single-board computer
 ([proembed.com](https://www.proembed.com/)) — a Rockchip **RK3399** board with
