@@ -90,7 +90,13 @@ jobs:
         working-directory: armbian-build
         run: |
           set -euo pipefail
+          # PREFER_DOCKER=no: build natively on the runner instead of inside
+          # Armbian's nested Docker. The nested container cannot register
+          # binfmt_misc (update-binfmts fails with EPERM), whereas the runner
+          # itself has passwordless sudo and can register the qemu handlers,
+          # which the arm64-on-amd64 cross build needs.
           ./compile.sh build \
+            PREFER_DOCKER=no \
             BOARD="${BOARD}" \
             BRANCH="${BRANCH}" \
             RELEASE="${{ github.event.inputs.release || 'trixie' }}" \
