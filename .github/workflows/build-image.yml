@@ -45,6 +45,9 @@ env:
 jobs:
   build:
     runs-on: ubuntu-24.04
+    # Needed so the release steps can create/update releases and upload assets.
+    permissions:
+      contents: write
     # The kernel compile alone runs ~40 min on the free runners; give headroom.
     timeout-minutes: 330
 
@@ -110,16 +113,19 @@ jobs:
       - name: Collect artifacts
         id: collect
         run: |
-          set -euo pipefail
+          set -eu
           mkdir -p out
-          cp -v armbian-build/output/images/*.img.xz out/ 2>/dev/null || \
-          cp -v armbian-build/output/images/*.img    out/ 2>/dev/null || true
-          cp -v armbian-build/output/images/*.sha    out/ 2>/dev/null || true
-          cp -v armbian-build/output/images/*.txt    out/ 2>/dev/null || true
+          img_dir=armbian-build/output/images
+          # Copy whatever the build produced. find never fails on a no-match,
+          # unlike a bare glob under `set -e` (that was the earlier failure:
+          # `*.img` had no match because COMPRESS produces `*.img.xz`).
+          find "$img_dir" -maxdepth 1 -type f \
+               \( -name '*.img.xz' -o -name '*.img' -o -name '*.sha' -o -name '*.txt' \) \
+               -exec cp -v {} out/ \;
           echo "Artifacts:"; ls -lh out/
-          # expose the image name for the release step
-          IMG=$(cd out && ls *.img.xz *.img 2>/dev/null | head -1)
-          echo "image_name=${IMG}" >> "$GITHUB_OUTPUT"
+          # First image (compressed preferred) for the release step; never fatal.
+          img=$(find out -maxdepth 1 -type f \( -name '*.img.xz' -o -name '*.img' \) | head -n1 || true)
+          echo "image_name=$(basename "${img:-none}")" >> "$GITHUB_OUTPUT"
 
       - name: Upload build artifact
         uses: actions/upload-artifact@v4
@@ -129,7 +135,28 @@ jobs:
           if-no-files-found: error
           retention-days: 30
 
-      - name: Publish GitHub Release (on tag)
+      # Every successful build of main publishes a rolling "latest" pre-release,
+      # so a downloadable image is always one click away without cutting a tag.
+      - name: Publish rolling 'latest' release (main)
+        if: github.ref == 'refs/heads/main'
+        uses: softprops/action-gh-release@v2
+        with:
+          tag_name: latest
+          name: Latest build (main)
+          prerelease: true
+          files: out/*
+          body: |
+            Rolling image for the **Xiangcheng XC3399FR** (RK3399), rebuilt from
+            the tip of `main`. For a fixed, reproducible version use a tagged
+            release instead.
+
+            - Board `${{ env.BOARD }}` · kernel `${{ env.BRANCH }}` · Armbian pinned at `${{ env.ARMBIAN_REF }}`
+            - Flash the `.img.xz` with Etcher/Raspberry Pi Imager; verify against the `.sha`.
+            - Move the system to a USB SSD with `armbian-install` → *Boot from eMMC, system on this disk*.
+              **Use the correct USB3 port** — see the README.
+
+      # A version tag (vX.Y.Z) publishes an immutable, release-noted version.
+      - name: Publish versioned release (tag)
         if: startsWith(github.ref, 'refs/tags/')
         uses: softprops/action-gh-release@v2
         with:

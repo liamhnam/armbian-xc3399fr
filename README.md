@@ -139,8 +139,19 @@ Details: [`docs/boot-emmc-usb-ssd.md`](docs/boot-emmc-usb-ssd.md).
 ### In CI (recommended)
 
 Push to `main`, or run the **Build Armbian image (XC3399FR)** workflow manually
-from the Actions tab. The image lands as a build artifact; tagging `vX.Y.Z`
-also publishes a GitHub Release.
+from the Actions tab. Every successful build:
+
+- uploads the image as a build **artifact**, and
+- publishes it to the rolling **[`latest`](../../releases/tag/latest)**
+  pre-release, so a downloadable `.img.xz` is always one click away.
+
+Tagging `vX.Y.Z` (`git tag v1.0.0 && git push origin v1.0.0`) publishes an
+immutable, release-noted version.
+
+> **Maintaining or extending this port?** Read
+> **[`docs/DEVELOPMENT.md`](docs/DEVELOPMENT.md)** — the complete, self-contained
+> guide to building, changing the device tree safely, testing on hardware,
+> the CI/release flow, and every non-obvious gotcha.
 
 ### Locally
 
@@ -170,6 +181,7 @@ userpatches/
     rk3399-xc3399fr.dts                           the device tree
 .github/workflows/build-image.yml                 CI/CD: build + release
 docs/
+  DEVELOPMENT.md                                  full maintainer/dev guide (read this)
   hardware.md                                     pin-level hardware notes
   boot-emmc-usb-ssd.md                            the split-boot story in full
   rk3399_android_vendor.dts.txt                   vendor Android DTB (reference; contains junk)
