@@ -1,103 +1,85 @@
-# sh.ps1 -- dang nhap UART va chay lenh trong MOT phien cong duy nhat
-# Dung: sh.ps1 -User root -Pass 1234 -Cmds @("uname -a","free -h")
+# sh2.ps1 -- login UART chac tay: xa buffer, cho dung prompt, thu nhieu password
 param(
   [string]$Port = "COM3",
   [int]$Baud = 1500000,
   [string]$User = "root",
-  [string]$Pass = "1234",
+  [string[]]$Passes = @("cuhanh123","1234"),
   [string[]]$Cmds = @(),
-  [int]$CmdWait = 8
+  [int]$CmdWait = 20
 )
-
-$sp = New-Object System.IO.Ports.SerialPort $Port, $Baud, ([System.IO.Ports.Parity]::None), 8, ([System.IO.Ports.StopBits]::One)
-$sp.Handshake = [System.IO.Ports.Handshake]::None
-$sp.DtrEnable = $false
-$sp.RtsEnable = $false
-$sp.ReadTimeout = 150
+$ErrorActionPreference = "Stop"
+$sp = New-Object System.IO.Ports.SerialPort $Port,$Baud,([System.IO.Ports.Parity]::None),8,([System.IO.Ports.StopBits]::One)
+$sp.Handshake=[System.IO.Ports.Handshake]::None
+$sp.DtrEnable=$false; $sp.RtsEnable=$false
+$sp.ReadTimeout=120; $sp.WriteTimeout=5000
 try { $sp.Open() } catch { Write-Output "ERR_OPEN: $($_.Exception.Message)"; exit 1 }
 
-$script:acc = New-Object System.Text.StringBuilder
-$buf = New-Object byte[] 8192
-
-function Pump {
-  param([int]$Ms)
-  $end = (Get-Date).AddMilliseconds($Ms)
-  while ((Get-Date) -lt $end) {
-    try {
-      $n = $sp.Read($buf, 0, $buf.Length)
-      if ($n -gt 0) { [void]$script:acc.Append([System.Text.Encoding]::UTF8.GetString($buf,0,$n)) }
-    } catch [TimeoutException] { }
+$acc = New-Object System.Text.StringBuilder
+$buf = New-Object byte[] 16384
+function Pump([int]$ms){
+  $end=(Get-Date).AddMilliseconds($ms)
+  while((Get-Date) -lt $end){
+    try{$n=$sp.Read($buf,0,$buf.Length); if($n -gt 0){[void]$acc.Append([Text.Encoding]::UTF8.GetString($buf,0,$n))}}catch{}
   }
 }
-
-function WaitFor {
-  param([string]$Pat, [int]$Secs)
-  $end = (Get-Date).AddSeconds($Secs)
-  while ((Get-Date) -lt $end) {
-    try {
-      $n = $sp.Read($buf, 0, $buf.Length)
-      if ($n -gt 0) { [void]$script:acc.Append([System.Text.Encoding]::UTF8.GetString($buf,0,$n)) }
-    } catch [TimeoutException] { }
-    if ($script:acc.ToString() -match $Pat) { return $true }
+function Txt(){ return ($acc.ToString() -replace "`e\[[0-9;?]*[a-zA-Z]","" -replace "`e\][0-9];?","" -replace "`r","") }
+function Clr(){ [void]$acc.Clear() }
+function WaitFor([string]$pat,[int]$secs){
+  $end=(Get-Date).AddSeconds($secs)
+  while((Get-Date) -lt $end){
+    try{$n=$sp.Read($buf,0,$buf.Length); if($n -gt 0){[void]$acc.Append([Text.Encoding]::UTF8.GetString($buf,0,$n))}}catch{}
+    if((Txt) -match $pat){return $true}
   }
   return $false
 }
 
-function Snap { $s = $script:acc.ToString(); [void]$script:acc.Clear(); return $s }
-
-# --- reset ve trang thai sach ---
-$sp.Write("`n"); Pump 400
-$sp.Write("`n"); Pump 800
-[void]$script:acc.Clear()
-$sp.Write("`n"); Pump 1200
-$cur = $script:acc.ToString()
-
-# --- dang nhap neu can ---
-if ($cur -match "login:") {
-  [void]$script:acc.Clear()
-  $sp.Write("$User`n")
-  if (WaitFor "[Pp]assword:" 6) {
-    [void]$script:acc.Clear()
-    $sp.Write("$Pass`n")
-    Pump 3000
-    $r = Snap
-    if ($r -match "Login incorrect|incorrect") {
-      Write-Output "LOGIN_FAIL: sai user/password"
-      $sp.Close(); $sp.Dispose(); exit 2
-    }
-    Write-Output "LOGIN_OK"
-  } else {
-    Write-Output "LOGIN_ERR: khong thay prompt Password"
-    $sp.Close(); $sp.Dispose(); exit 3
-  }
-} elseif ($cur -match "[#\$]\s*$") {
-  Write-Output "DA_DANG_NHAP_SAN"
-} else {
-  Write-Output "TRANG_THAI_LA:"
-  Write-Output ($cur -replace "`e\[[0-9;?]*[a-zA-Z]","")
+# 1. Xa sach. KHONG gui Ctrl-C truoc: neu roi trung luc U-Boot dem nguoc thi
+#    no ngat autoboot va board mac o prompt '=>'.
+$sp.Write("`n"); Pump 1500
+$t0 = Txt
+if($t0 -match "=>\s*$" -or $t0 -match "Fine3399\s*=>"){
+  Write-Output "U_BOOT_PROMPT -> gui 'boot', doi he thong len"
+  Clr; $sp.Write("boot`n")
+  if(WaitFor "login:|[#\$]\s*$" 120){ Write-Output "DA_BOOT_LAI_DUOC" }
+  else { Write-Output "BOOT_LAI_THAT_BAI"; $sp.Close(); exit 4 }
 }
+Clr; Pump 2500          # doi moi thu troi qua
+Clr
 
-# --- tat phan trang de lenh khong bi ket o 'less' ---
-$sp.Write("export TERM=dumb PAGER=cat SYSTEMD_PAGER=cat GIT_PAGER=cat`n"); Pump 700
-[void]$script:acc.Clear()
+$loggedIn=$false
+foreach($p in $Passes){
+  $sp.Write("`n"); Pump 1200
+  $t = Txt
+  if($t -match "(@@>|[#\$])\s*$" -and $t -notmatch "login:"){ Write-Output "DA_CO_SHELL"; $loggedIn=$true; break }
+  if($t -notmatch "login:"){ Clr; $sp.Write("`n"); Pump 1500; $t=Txt }
+  if($t -match "login:"){
+    Clr; $sp.Write("$User`n")
+    if(WaitFor "[Pp]assword:" 8){
+      Clr; $sp.Write("$p`n"); Pump 4000
+      $r = Txt
+      if($r -match "incorrect|Login incorrect"){ Write-Output "SAI_PASS: $p"; Clr; continue }
+      Write-Output "LOGIN_OK (pass=$p)"; $loggedIn=$true; Clr; break
+    }
+  }
+}
+if(-not $loggedIn){ Write-Output "KHONG_DANG_NHAP_DUOC"; Write-Output (Txt); $sp.Close(); exit 2 }
 
-foreach ($c in $Cmds) {
-  [void]$script:acc.Clear()
+$sp.Write("export TERM=dumb PAGER=cat SYSTEMD_PAGER=cat LC_ALL=C`n"); Pump 900; Clr
+$sp.Write("PS1='@@> '`n"); Pump 900; Clr
+
+foreach($c in $Cmds){
+  Clr
   $sp.Write("$c`n")
-  # doc cho den khi im lang 1.5s hoac het CmdWait
-  $end = (Get-Date).AddSeconds($CmdWait)
-  $last = Get-Date
-  while ((Get-Date) -lt $end) {
-    try {
-      $n = $sp.Read($buf, 0, $buf.Length)
-      if ($n -gt 0) { [void]$script:acc.Append([System.Text.Encoding]::UTF8.GetString($buf,0,$n)); $last = Get-Date }
-    } catch [TimeoutException] {
-      if ($script:acc.Length -gt 0 -and ((Get-Date)-$last).TotalSeconds -gt 1.5) { break }
-    }
+  # doi den khi prompt '@@>' xuat hien LAI (sau dong echo lenh), hoac het CmdWait
+  $end=(Get-Date).AddSeconds($CmdWait)
+  while((Get-Date) -lt $end){
+    try{$n=$sp.Read($buf,0,$buf.Length); if($n -gt 0){[void]$acc.Append([Text.Encoding]::UTF8.GetString($buf,0,$n))}}catch{}
+    $t=Txt
+    # bo dong dau (echo lenh) roi tim prompt trong phan con lai
+    $i=$t.IndexOf("`n")
+    if($i -ge 0 -and $t.Substring($i) -match "@@>"){ break }
   }
-  $o = Snap -replace "`e\[[0-9;?]*[a-zA-Z]","" -replace "`r",""
   Write-Output "########## $c"
-  Write-Output $o
+  Write-Output (Txt)
 }
-
 $sp.Close(); $sp.Dispose()
