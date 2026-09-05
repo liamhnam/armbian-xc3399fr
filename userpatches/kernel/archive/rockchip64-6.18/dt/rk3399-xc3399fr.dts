@@ -1,10 +1,12 @@
 // SPDX-License-Identifier: (GPL-2.0+ OR MIT)
 /*
- * Guangzhou Xiangcheng Electronics (proembed.com) XC3399FR v1.1a industrial board.
+ * Guangzhou Xiangcheng Electronics (proembed.com) XC3399FR industrial board.
+ * (validated on hardware revision v1.1a)
  *
- * Derived from rk3399-fine3399.dts, corrected against the vendor Android
- * device tree dumped from the board's eMMC (compatible was
- * "rockchip,rk3399-excavator-edp").
+ * Derived from rk3399-fine3399.dts and validated against a live board over
+ * the debug UART. A vendor Android device tree dumped from an XC3399FR of a
+ * different hardware revision (compatible "rockchip,rk3399-excavator-edp")
+ * was used as a cross-check only, never as the sole justification.
  *
  * Hardware notes (probed over the debug UART on a live board):
  *  - 4 GB LPDDR4 (the printed datasheet claims DDR3 - it is wrong)
@@ -28,7 +30,7 @@
 #include "rk3399.dtsi"
 
 / {
-	model = "Xiangcheng XC3399FR v1.1a";
+	model = "Xiangcheng XC3399FR";
 	compatible = "xcdz,xc3399fr", "rockchip,rk3399";
 
 	aliases {
@@ -129,6 +131,8 @@
 		pinctrl-names = "default";
 		pinctrl-0 = <&host_vbus_drv>;
 		regulator-name = "vcc5v0_host";
+		regulator-min-microvolt = <5000000>;
+		regulator-max-microvolt = <5000000>;
 		regulator-always-on;
 		regulator-boot-on;
 		vin-supply = <&vcc_sys>;
@@ -141,6 +145,8 @@
 		pinctrl-names = "default";
 		pinctrl-0 = <&otg_vbus_drv>;
 		regulator-name = "vcc5v0_otg";
+		regulator-min-microvolt = <5000000>;
+		regulator-max-microvolt = <5000000>;
 		regulator-always-on;
 		regulator-boot-on;
 		vin-supply = <&vcc_sys>;
@@ -152,6 +158,8 @@
 		enable-active-high;
 		gpio = <&gpio2 RK_PD4 GPIO_ACTIVE_HIGH>;
 		regulator-name = "fan_pwr";
+		regulator-min-microvolt = <5000000>;
+		regulator-max-microvolt = <5000000>;
 		regulator-always-on;
 		regulator-boot-on;
 		vin-supply = <&vcc_sys>;
@@ -163,6 +171,8 @@
 		enable-active-high;
 		gpio = <&gpio4 RK_PD2 GPIO_ACTIVE_HIGH>;
 		regulator-name = "vcc_4g";
+		regulator-min-microvolt = <3300000>;
+		regulator-max-microvolt = <3300000>;
 		regulator-always-on;
 		regulator-boot-on;
 		vin-supply = <&vcc3v3_sys>;
@@ -606,7 +616,7 @@
 		};
 
 		pmic_int_l: pmic-int-l {
-			rockchip,pins = <1 RK_PB2 RK_FUNC_GPIO &pcfg_pull_up>;
+			rockchip,pins = <1 RK_PC5 RK_FUNC_GPIO &pcfg_pull_up>;
 		};
 
 		pmic_dvs2: pmic-dvs2 {
