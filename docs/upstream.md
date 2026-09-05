@@ -29,13 +29,9 @@ Armbian reviewers expect for a board port. Every extra line is review friction.
 
 ---
 
-## 2. The one thing that should still go upstream
+## 2. Considered and rejected: blacklisting the `7825:a2a4` bridge upstream
 
-The `7825:a2a4` USB-SATA bridge - formerly bundled with these units - has a
-broken UAS implementation
-(`docs/storage.md`, section 4 and 5). Armbian already maintains a global UAS
-blacklist for exactly this class of device, and its own comment invites
-additions:
+Armbian keeps a global UAS blacklist, and its own comment invites additions:
 
 `packages/bsp/common/usr/lib/armbian/armbian-hardware-optimization`:
 
@@ -43,31 +39,40 @@ additions:
     # they're blacklisted upstream
     [ -s ${TMPFILE} ] || echo "0x2537:0x1066:u,0x2537:0x1068:u" > ${TMPFILE}
 
-The correct upstream change is one line:
+Adding our bridge would be one line, and for a while this document recommended
+doing it. **It was dropped, on purpose.** The reasoning is recorded here so
+nobody re-proposes it without new evidence.
 
-    -[ -s ${TMPFILE} ] || echo "0x2537:0x1066:u,0x2537:0x1068:u" > ${TMPFILE}
-    +[ -s ${TMPFILE} ] || echo "0x2537:0x1066:u,0x2537:0x1068:u,0x7825:0xa2a4:u" > ${TMPFILE}
+### Why not
 
-Why this and not a board-level hook:
+**The evidence does not support a global blacklist.** What was measured is that
+the bridge misbehaves *on RK3399, behind a Synopsys dwc3 xHCI*: one SoC, one
+board, one SSD, two cables. Section 1 of `storage.md` argues at length that UAS
+is a negotiation between the bridge **and the host controller**, and that
+bridges which are solid on x86 misbehave on ARM SBCs routinely. That cuts both
+ways: the fault may well be the *interaction*, not the device.
 
-* The bridge is a **peripheral**, not board hardware. A VID:PID in a board
-  config would be wrong scope - it would fire for XC3399FR owners who use a
-  different cable, and would not help anyone with this cable on another board.
-* It is where Armbian already solves this exact problem, with precedent and an
-  explicit invitation in the comment.
-* One line, easy to review, benefits every Armbian user with this bridge.
+Armbian's list is applied to every board it builds, x86 included. Pushing an
+entry there on RK3399-only data would force BOT - and a 4-11x random IOPS
+penalty - on people whose setup works fine. A reviewer would be right to ask
+"tested on any other host?", and the honest answer is no.
 
-Note that our own images do **not** carry this quirk - they leave
-`usbstoragequirks` unset (section 3). That is not a contradiction. We stopped
-bundling the cable, so pinning its VID:PID in our board config would only slow
-down customers who use a different, working bridge. Upstream is the right place
-for a device quirk precisely because it is keyed on the device: it fires for
-whoever actually has that cable, on any board, and for nobody else.
+**It also does not help this product.** The cable is no longer bundled, so no
+customer is affected. And it would work slightly *against* the units we run
+ourselves: if merged, our own images would default that bridge to BOT and every
+box that wants UAS would need an `armbianEnv.txt` override.
 
-If it merges, a unit of ours that happens to be paired with this bridge gets the
-safe behaviour automatically - and anyone who knowingly wants UAS can still
-override the variable in `armbianEnv.txt`, which is the escape hatch the
-mechanism is designed around.
+### What would be correct, if anyone wants to pursue it
+
+Report rather than blacklist: a description to `linux-usb@vger.kernel.org` with
+the logs and reproduction steps, so people with other host controllers can
+confirm or contradict it. If several hosts reproduce it, the right home for a
+quirk is `unusual_uas.h` in mainline, not a distro script - and at that point
+Armbian's list stops being needed at all, which is exactly what its comment
+anticipates.
+
+A ready-to-send draft is kept outside this repository at
+`XC3399FR/upstream/PR-uas-blacklist.md`. It is deliberately not sent.
 
 ---
 
@@ -114,5 +119,5 @@ Norelsys entries alongside yours - `tools/board/storage-transport.sh` does.
 3. Keep every document in `docs/`. The measurements and the refuted hypotheses
    are the part that took the time; they do not become obsolete when the code
    moves upstream.
-4. Open the one-line blacklist PR from section 2 if it has not been merged by
-   then.
+Nothing else is pending upstream. Section 2 records the one change that was
+considered and deliberately not sent.

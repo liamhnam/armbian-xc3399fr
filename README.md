@@ -216,8 +216,6 @@ in the field.
 
 - Get `armbian.github.io#440` reviewed; it is the only failing check on the
   board PR.
-- Submit the one-line UAS blacklist entry for the `7825:a2a4` bridge to
-  `armbian/build` (see [docs/upstream.md](docs/upstream.md), section 2).
 - Optional LVDS output via the TC358775 DSI-to-LVDS bridge (needs real panel
   timings).
 - Longer multi-day soak of the USB-SSD path.
