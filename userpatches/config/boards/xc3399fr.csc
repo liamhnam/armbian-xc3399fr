@@ -1,10 +1,21 @@
-# Xiangcheng XC3399FR v1.1a (proembed.com) - RK3399 hexa core 4GB LPDDR4, GbE, eMMC, 2x USB3
-BOARD_NAME="XC3399FR v1.1a"
+# Rockchip RK3399 hexa core 4GB LPDDR4 eMMC GBE 2x USB3 HDMI WiFi/BT
+#
+# Product build for Xiangcheng XC3399FR v1.1a (proembed.com).
+# Upstream submission: https://github.com/armbian/build/pull/10619
+#
+# This file intentionally stays as close as possible to the upstream board
+# config. The only addition is the watchdog hook at the bottom, which exists
+# because these units are sold as always-on NAS / Docker / home-server boxes
+# that must recover from a kernel hang unattended. Anything that is not specific
+# to that product belongs upstream, not here.
+BOARD_NAME="XC3399FR"
 BOARD_VENDOR="proembed"
 BOARDFAMILY="rockchip64"
-BOARD_MAINTAINER=""
-INTRODUCED="26.2"
+BOARD_MAINTAINER="liamhnam"
+INTRODUCED="2021"
 BOOTCONFIG="fine3399-rk3399_defconfig"
+# Product images ship 'current' only, on purpose: customers get the LTS kernel
+# the board was validated on. Upstream additionally offers edge/bleedingedge.
 KERNEL_TARGET="current"
 KERNEL_TEST_TARGET="current"
 FULL_DESKTOP="yes"
@@ -12,48 +23,34 @@ BOOT_LOGO="desktop"
 BOOT_FDT_FILE="rockchip/rk3399-xc3399fr.dtb"
 BOOT_SCENARIO="only-blobs"
 
-# Deliberately NOT SRC_EXTLINUX="yes".
-#
-# fine3399 - which this board config was derived from - is one of only 22 of
-# Armbian's 362 boards that boot via extlinux. That matters for a board meant to
-# run its rootfs on a USB SSD, because armbian-config's installer
-# (install_run_split / install_rewrite_bootenv) only ever rewrites
-# armbianEnv.txt; it has no extlinux support at all, in 26.8.0-trunk.426 or in
-# the newer .0829 build. With extlinux the officially supported
-# "Boot from eMMC, system on this disk" flow completes with exit 0 but leaves
-# two broken things behind:
-#
-#   1. root= still points at the *source* device, and
-#   2. extlinux.conf keeps its "/boot/..." path prefixes even though the eMMC
-#      boot partition IS /boot, so u-boot cannot find the initrd, skips the
-#      entry, falls through to EFI then PXE, and loops forever - the classic
-#      "stops after U-Boot, SSD LED never lights" symptom.
-#
-# boot.scr has neither problem. The rockchip64 boot script addresses every file
-# through ${prefix}, and u-boot sets that from boot_prefixes="/ /boot/" for
-# whichever layout it actually finds, so the same boot.scr works whether /boot
-# is a directory in the rootfs or a partition of its own. It also always appends
-# rootwait (required: the USB SSD needs ~5 s to enumerate) and exposes
-# usb-storage.quirks as a first-class armbianEnv.txt variable.
-#
-# Net effect: the customer runs armbian-install, picks the SSD, picks
-# "Boot from eMMC, system on this disk", and it just works - with a completely
-# stock armbian-config.
+# Deliberately no SRC_EXTLINUX here, unlike fine3399 which this device tree was
+# derived from. boot.scr + armbianEnv.txt is what makes the stock
+# armbian-install "boot from eMMC, system on this disk" flow work on this
+# board: the rockchip64 boot script resolves every path through ${prefix}, so
+# one script boots whether /boot is a directory (SD) or its own partition
+# (eMMC). Worth revisiting once armbian/configng#985 is merged.
 
-function image_specific_armbian_env_ready__xc3399fr_usb_quirks() {
-	# This is the hook the build framework documents for exactly this: it only
-	# runs when SRC_EXTLINUX != yes and guarantees armbianEnv.txt exists.
-	display_alert "$BOARD" "adding board defaults to armbianEnv.txt" "info"
-
-	# The ULT-Best/OWC 7825:a2a4 USB-SATA bridge has a broken UAS
-	# implementation: without this quirk it throws uas_eh_abort_handler and
-	# resets the device on roughly 40% of boots. Forcing usb-storage (BOT)
-	# costs some write throughput and cures it completely. Remove this line
-	# if the unit ships with a bridge that has sane UAS.
-	echo "usbstoragequirks=7825:a2a4:u" >> "${SDCARD}"/boot/armbianEnv.txt
-
-	cat "${SDCARD}"/boot/armbianEnv.txt
-}
+# NOTE ON usbstoragequirks - deliberately NOT set here.
+#
+# An earlier revision pinned the OWC 7825:a2a4 USB-SATA bridge to BOT, because
+# that bridge has a genuinely broken UAS implementation (docs/storage.md §6:
+# over 20 warm reboots on two different cables, 7 stalled ~30 s and one never
+# brought the disk up at all, needing a power cycle).
+#
+# That line is gone because units no longer ship with that cable. Hardcoding a
+# VID:PID quirk for a device the customer probably does not own would only
+# penalise everyone whose bridge is fine - BOT costs 4-11x random IOPS.
+#
+# Leaving the variable unset is also what keeps Armbian's own UAS blacklist
+# working: armbian-hardware-optimization installs its Norelsys NS1066/NS1068
+# entries ONLY when usbstoragequirks is EMPTY. Writing any value of our own
+# would silently replace that list rather than add to it.
+#
+# Net effect: these images behave exactly like stock Armbian. A good bridge runs
+# UAS at full speed; a known-bad Norelsys is blacklisted by Armbian; anything
+# else behaves as it would on any other distro, and docs/storage.md tells the
+# user how to diagnose it and how to flip transports with
+# tools/board/storage-transport.sh.
 
 function post_family_tweaks__xc3399fr_watchdog() {
 	# The RK3399 has a Synopsys DesignWare watchdog and the kernel exposes it
@@ -67,3 +64,24 @@ function post_family_tweaks__xc3399fr_watchdog() {
 		RebootWatchdogSec=10min
 	WATCHDOG
 }
+
+# NOTE ON smartd - deliberately NOT configured here.
+#
+# A revision of this file shipped a smartd.conf with `DEVICESCAN -d sat`, on the
+# reasoning that smartd cannot probe a disk behind a USB-SATA bridge without
+# being told the transport. Testing on hardware showed that config does not
+# work either:
+#
+#   DEVICESCAN -a        -> "NO devices found to scan"          (exit 17)
+#   DEVICESCAN -d sat    -> "/dev/sda open() failed: Not a SAT device" (exit 17)
+#   /dev/sda -d sat      -> "[SAT], is SMART capable"           (exit 0)
+#
+# Only an explicit device entry works, and hardcoding /dev/sda is wrong here
+# because disk letters are not stable across boots on this board. Note also
+# that eMMC and SD cards do not implement SMART at all, so on a unit without a
+# USB disk there is nothing for smartd to monitor and it exits 17 - a red
+# FAILED unit for no reason.
+#
+# A config that silently monitors nothing is worse than no config, so the image
+# ships none. docs/install.md documents the two lines needed to enable it on a
+# unit that actually has a USB-attached SATA disk.
