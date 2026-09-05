@@ -91,15 +91,79 @@ split-emmc flow to produce a correct configuration.
 ## Recovering an already-deployed extlinux unit
 
 If you have a board already installed the old way and don’t want to re-image,
-`tools/armbian-install-extlinux-fixup.sh <boot-part> <root-part>` rewrites the
-stale `extlinux.conf` in place (fixes both `root=` and the `/boot/` prefixes and
-ensures `rootwait`). New deployments from this port never need it.
+`tools/board/armbian-install-extlinux-fixup.sh <boot-part> <root-part>` rewrites
+the stale `extlinux.conf` in place (fixes both `root=` and the `/boot/` prefixes
+and ensures `rootwait`). New deployments from this port never need it.
 
-## The USB-SATA bridge quirk
+## The USB-SATA bridge
 
-The adapter used in validation (ULT-Best / OWC `7825:a2a4`) has a broken UAS
-implementation that triggers `uas_eh_abort_handler` device resets on ~40 % of
-boots. The board config adds `usbstoragequirks=7825:a2a4:u`, forcing plain
-usb-storage (BOT) mode, which cures it. If you standardise on a bridge with a
-sound UAS implementation (ASM1153E/ASM1351/JMS578/RTL9210), drop that line from
-`userpatches/config/boards/xc3399fr.csc`.
+Because the rootfs lives on USB, the **USB-SATA bridge is the single
+highest-risk component in this build** - more than the SSD, the board, or the
+kernel. On most Armbian machines a flaky bridge means "the data disk dropped";
+here it means "the machine did not come back".
+
+Images do **not** override the transport: `usbstoragequirks` is left unset, so
+the kernel behaves exactly as it would on stock Armbian. A bridge that
+advertises UAS gets UAS; Armbian's own blacklist still covers the known-bad
+Norelsys NS1066/NS1068 parts.
+
+### Known-good bridges
+
+Chips with a UAS implementation that is widely trusted on ARM SBCs:
+**ASM1153E, ASM1351, JMS578, RTL9210**.
+
+### If a disk misbehaves
+
+Symptoms of a bad bridge, in escalating order: enumeration takes ~30 s longer
+than usual; `dmesg` shows `uas_eh_abort_handler` and `reset SuperSpeed`; worst
+case the board stops at
+
+    Gave up waiting for root file system device.
+    ALERT! UUID=... does not exist. Dropping to a shell!
+
+The fix is one command, no rebuild, no re-image:
+
+    tools/board/storage-transport.sh          # show current state
+    tools/board/storage-transport.sh bot      # force BOT, then reboot
+    tools/board/storage-transport.sh uas      # back to stock behaviour
+
+BOT costs roughly 4-11x random IOPS on a bridge like that, but it always boots.
+
+This is not hypothetical. The adapter formerly bundled with these units (OWC
+`7825:a2a4`) fails exactly this way: across 20 warm reboots on **two different
+cables**, 7 stalled for 30 s and one never brought the disk up at all.
+
+## Disk health monitoring (optional, manual)
+
+Images ship no `smartd` configuration. On a unit whose system disk really is a
+USB-attached SATA drive, two lines enable it:
+
+    apt install -y smartmontools
+    DISK=/dev/$(lsblk -no pkname "$(findmnt -no SOURCE /)")
+    echo "$DISK -d sat -a -o on -S on -W 4,45,60" > /etc/smartmontools/smartd.conf
+    systemctl restart smartd
+
+Three things make this manual rather than baked into the image:
+
+* `DEVICESCAN` does not work here. Measured: plain `DEVICESCAN` reports *"NO
+  devices found to scan"*, and `DEVICESCAN -d sat` reports *"/dev/sda open()
+  failed: Not a SAT device"*. Only an explicit device entry registers the disk.
+* Disk letters are not stable across boots, so the device must be resolved from
+  whatever is actually mounted on `/` — which is what the `DISK=` line above
+  does. Re-run it if you move the disk.
+* eMMC and SD cards do not implement SMART at all. On a unit without a USB disk
+  there is nothing to monitor and `smartd` exits 17, which systemd shows as a
+  failed unit.
+
+The attribute worth watching on this board is **`UDMA_CRC_Error_Count`**: it
+counts errors on the SATA link, so a rising value means the cable, connector or
+bridge is going marginal - the earliest warning available for the failure mode
+described above. `Reallocated_Sector_Ct` and `Current_Pending_Sector` leaving 0
+mean the flash itself is degrading.
+
+There is no MTA in the image, so alerts go to the journal:
+
+    journalctl -u smartd
+
+**`docs/storage.md` is the full story**: every measurement, the boot run that
+decided it, and the five hypotheses that were tested and refuted along the way.

@@ -94,9 +94,10 @@ Full pin-level notes: [`docs/hardware.md`](docs/hardware.md).
 
 ## What this port changes vs a generic RK3399 config
 
-The device tree is derived from `rk3399-fine3399.dts`, corrected against the
-vendor Android DTB dumped from the board and then verified against real
-hardware. Highlights:
+The device tree is derived from `rk3399-fine3399.dts` and verified against real
+hardware over the debug UART. A vendor Android device tree, dumped from an
+XC3399FR of a **different hardware revision**, was used as a cross-check only —
+never as the sole justification for a change. Highlights:
 
 - **Second USB 3.0 port revived** — `vcc5v0_host`/`vcc5v0_otg` regulators drive
   the VBUS-enable GPIOs the generic config leaves floating; removed the
@@ -180,26 +181,46 @@ killer during the kernel compile.
 
 ```
 userpatches/
-  config/boards/xc3399fr.csc                     board definition + build hooks
-  kernel/archive/rockchip64-6.18/dt/
-    rk3399-xc3399fr.dts                           the device tree
-.github/workflows/build-image.yml                 CI/CD: build + release
+  config/boards/xc3399fr.csc                board definition + the two product hooks
+  kernel/archive/rockchip64-{6.18,7.2,7.3}/dt/
+    rk3399-xc3399fr.dts                     device tree, byte-identical to PR #10619
+.github/workflows/build-image.yml           CI/CD: build + release
 docs/
-  DEVELOPMENT.md                                  full maintainer/dev guide (read this)
-  hardware.md                                     pin-level hardware notes
-  boot-emmc-usb-ssd.md                            the split-boot story in full
-  rk3399_android_vendor.dts.txt                   vendor Android DTB (reference; contains junk)
-  rk3399-xc3399fr.reference.dtb                   prebuilt DTB for comparison
-tools/                                            serial/UART + on-board helper scripts
+  storage.md                                USB-SATA bridge, UAS vs BOT, all measurements
+  upstream.md                               what goes to Armbian vs what stays here
+  install.md                                boot on eMMC + system on USB SSD, customer flow
+  hardware.md                               pin-level hardware notes
+  testing.md                                how to reproduce every measurement
+  development.md                            maintainer/dev guide (read this first)
+  reference/
+    rk3399_android_vendor.dts.txt           vendor Android DT (cross-check only, see note)
+    rk3399-xc3399fr.reference.dtb           prebuilt DTB for comparison
+tools/
+  serial/                                   UART login, logging, U-Boot access
+  board/                                    on-board benchmark / transport / install helpers
 ```
+
+Start with **[docs/upstream.md](docs/upstream.md)** for the split between this
+repository and the Armbian PR, and **[docs/storage.md](docs/storage.md)** for
+the storage decision — the one choice that most affects how these units behave
+in the field.
+
+## Upstream status
+
+| PR | Contents | State |
+|---|---|---|
+| [armbian/build#10619](https://github.com/armbian/build/pull/10619) | board config + device trees | open, mergeable, awaiting review |
+| [armbian/armbian.github.io#440](https://github.com/armbian/armbian.github.io/pull/440) | board assets | open — **this is the blocker** for the check on #10619 |
 
 ## Contributing / TODO
 
-- Longer soak tests of the USB-SSD path (the ULT-Best `7825:a2a4` bridge shows
-  occasional self-recovered `reset SuperSpeed` events; quirked to BOT mode).
+- Get `armbian.github.io#440` reviewed; it is the only failing check on the
+  board PR.
+- Submit the one-line UAS blacklist entry for the `7825:a2a4` bridge to
+  `armbian/build` (see [docs/upstream.md](docs/upstream.md), section 2).
 - Optional LVDS output via the TC358775 DSI-to-LVDS bridge (needs real panel
   timings).
-- Submit upstream to `armbian/build` once a maintainer is assigned.
+- Longer multi-day soak of the USB-SSD path.
 
 ## License
 

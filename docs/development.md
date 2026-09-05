@@ -228,16 +228,27 @@ unpinned framework can change the kernel version and U-Boot under you.
 - **No `SRC_EXTLINUX="yes"`** — this is critical. The board uses
   `boot.scr` + `armbianEnv.txt` like 340 of Armbian's 362 boards. It is what
   makes `armbian-install` split-emmc work. Do **not** add extlinux back
-  (`boot-emmc-usb-ssd.md` explains why in full).
-- Hook `image_specific_armbian_env_ready__xc3399fr_usb_quirks` adds
-  `usbstoragequirks=7825:a2a4:u` — the specific ULT-Best/OWC USB-SATA bridge has
-  a broken UAS implementation. Drop this line if you standardise on a bridge with
-  sane UAS (ASM1153E/JMS578/RTL9210).
+  (`install.md` explains why in full).
+- **`usbstoragequirks` is deliberately NOT set**, so the images behave like
+  stock Armbian and Armbian's own Norelsys blacklist stays in effect (it is only
+  auto-installed when the variable is **empty** — writing any value of our own
+  would replace that list, not extend it). An earlier revision pinned the
+  formerly-bundled `7825:a2a4` bridge to BOT; that came out when the cable
+  stopped shipping, since a VID:PID quirk for hardware the customer does not own
+  only costs everyone else 4-11x random IOPS. The measurements that motivated it
+  are still worth reading — `storage.md` §6.
 - Hook `post_family_tweaks__xc3399fr_watchdog` enables the hardware watchdog
-  (`RuntimeWatchdogSec=30s`) for unattended 24/7 use.
+  (`RuntimeWatchdogSec=30s`) for unattended 24/7 use. No Armbian board sets
+  this, which is exactly why it is here and not in the upstream PR.
+- **No smartd config is shipped**, and that is deliberate. A previous revision
+  wrote `DEVICESCAN -d sat`, which measurement showed does not work: only an
+  explicit device entry registers the disk, and hardcoding `/dev/sda` is unsafe
+  because disk letters are not stable here. eMMC and SD do not implement SMART
+  at all, so on a unit without a USB disk smartd would exit 17 and show as a
+  failed unit for no reason. `install.md` documents the manual setup.
 
 Both hooks are **product policy** and are intentionally absent from the upstream
-PR version of this file.
+PR version of this file. `upstream.md` records the full divergence list.
 
 ---
 
