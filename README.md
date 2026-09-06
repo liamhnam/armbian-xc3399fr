@@ -150,7 +150,7 @@ script addresses every file through `${prefix}`, which U-Boot resolves from
 appends `rootwait`, and exposes `usbstoragequirks` as a first-class variable.
 Result: the stock `armbian-install` split-emmc flow just works.
 
-Details: [`docs/boot-emmc-usb-ssd.md`](docs/boot-emmc-usb-ssd.md).
+Details: [`docs/install.md`](docs/install.md).
 
 ---
 
@@ -169,7 +169,7 @@ Tagging `vX.Y.Z` (`git tag v1.0.0 && git push origin v1.0.0`) publishes an
 immutable, release-noted version.
 
 > **Maintaining or extending this port?** Read
-> **[`docs/DEVELOPMENT.md`](docs/DEVELOPMENT.md)** — the complete, self-contained
+> **[`docs/development.md`](docs/development.md)** — the complete, self-contained
 > guide to building, changing the device tree safely, testing on hardware,
 > the CI/release flow, and every non-obvious gotcha.
 

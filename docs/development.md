@@ -67,7 +67,7 @@ Measured on real hardware, not from the datasheet (which is wrong):
 - **Wi-Fi/BT**: AP6256 (BCM4345/9). BT is `brcm,bcm4345c5` @ 1.5 Mbaud.
 
 Full detail: [`hardware.md`](hardware.md). Boot/rootfs story:
-[`boot-emmc-usb-ssd.md`](boot-emmc-usb-ssd.md).
+[`install.md`](install.md).
 
 ---
 
@@ -206,7 +206,7 @@ ssh root@<board-ip> 'sync; reboot'
   **UUID**, not by `sd?` letter — the letters move between boots.
 
 The **eMMC-boot + USB-SSD-system** scenario is the headline feature; test it
-exactly as a customer would (§ `boot-emmc-usb-ssd.md`): flash SD → boot →
+exactly as a customer would (§ `install.md`): flash SD → boot →
 `armbian-install` → *Boot from eMMC, system on this disk* → remove SD → boot.
 
 ---
@@ -281,7 +281,7 @@ PR version of this file. `upstream.md` records the full divergence list.
 | Symptom | Start here |
 |---|---|
 | Image won't build in CI | the failing step's log; check §6 regressions first |
-| Board "stops after U-Boot", SSD LED off | `boot-emmc-usb-ssd.md` — almost always the extlinux/path issue or the wrong USB3 port |
+| Board "stops after U-Boot", SSD LED off | `install.md` — almost always the extlinux/path issue or the wrong USB3 port |
 | USB disk resets / xHCI "HC died" | check which port it is on — move it to `vcc5v0_host` / `fe900000.usb` (§2) |
 | A feature regressed after a DT edit | rebuild DTB, diff against `docs/rk3399-xc3399fr.reference.dtb`, re-test (§4–5) |
 | WiFi/BT missing | check the SDIO/uart0 nodes and that `armbian-firmware` is installed |
