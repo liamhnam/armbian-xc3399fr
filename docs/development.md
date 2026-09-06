@@ -19,30 +19,33 @@ pinned checkout of [`armbian/build`](https://github.com/armbian/build):
 
 ```
 userpatches/
-  config/boards/xc3399fr.csc                     board definition + build hooks
-  kernel/archive/rockchip64-6.18/dt/
-    rk3399-xc3399fr.dts                           the kernel device tree
+  config/boards/xc3399fr.csc                     product overlay (KERNEL_TARGET + watchdog)
 .github/workflows/build-image.yml                 CI: build → artifact + release
 docs/                                             this guide + hardware/boot notes
 assets/                                           the board photo + vendor logo
 tools/                                            serial/UART + on-board helpers
 ```
 
-Armbian discovers boards from **both** `config/boards/` and
-`userpatches/config/boards/`, and device trees from
-`patch/kernel/archive/<family>/dt/` and the matching `userpatches/` path. So the
-build just needs our `userpatches/` copied into its tree — nothing in the
-framework is patched. This is the officially supported extension mechanism.
+Armbian sources the board file from **both** `config/boards/` and
+`userpatches/config/boards/`, in that order, so our overlay only carries what
+differs for the units we ship; everything else is inherited from the upstream
+board file. The device tree comes entirely from upstream
+(`patch/kernel/archive/<family>/dt/`) — this repository holds no copy. Nothing
+in the framework is patched. This is the officially supported extension
+mechanism.
 
 **Two independent delivery channels exist:**
 
 | Channel | Where | Purpose |
 |---|---|---|
 | This repo (private) | `github.com/liamhnam/armbian-xc3399fr` | your product image, with the board-specific hooks |
-| Upstream PR | `armbian/build#10619` + `armbian/armbian.github.io#440` | getting the board onto armbian.com |
+| Upstream | `armbian/build` (merged #10619) + `armbian.github.io` (merged #440) | the board itself, and Armbian's own rolling images |
 
-The upstream copy deliberately **omits** the two product hooks (USB-SATA quirk,
-watchdog) — see §7. Keep that in mind when syncing changes between them.
+Upstream carries the board: config, device trees for all three kernel branches,
+photo and vendor logo. This repository carries only what is true of the units we
+ship — `KERNEL_TARGET="current"` and the watchdog hook — plus the documentation
+and tooling. Armbian sources the upstream board file first and this repo's
+overlay second, so anything not set in the overlay tracks upstream for free.
 
 ---
 
@@ -51,10 +54,11 @@ watchdog) — see §7. Keep that in mind when syncing changes between them.
 Measured on real hardware, not from the datasheet (which is wrong):
 
 - **RK3399**, **4 GB LPDDR4** (datasheet says "DDR3 2 GB" — false), eMMC HS400 ES.
-- **Two USB 3.0 ports are NOT equal.** One is powered from the SoC OTG rail
-  (`fe800000.usb` / `vcc5v0_otg`) and **browns out a 2.5″ SSD under load**; the
-  other (`fe900000.usb` / `vcc5v0_host`) is solid. **Always put a disk on the
-  `vcc5v0_host` port.** Identify at runtime:
+- **The two USB 3.0 ports do not behave the same.** A bus-powered disk on
+  `fe800000.usb` / `vcc5v0_otg` produced a disconnect storm; the same class of
+  disk on `fe900000.usb` / `vcc5v0_host` is solid across long soaks. The cause
+  is **not established** (`docs/storage.md` records what was and was not
+  tested). **Always put a disk on the `vcc5v0_host` port.** Identify at runtime:
   `readlink -f /sys/class/block/sdX/device | grep -oE 'fe[89]00000\.usb'`.
 - **No PCIe / no mSATA.** The PCIe PHY PLL never locks; the RK3399 has no SATA
   controller. `&pcie0`/`&pcie_phy` are disabled on purpose.
@@ -88,7 +92,7 @@ Full detail: [`hardware.md`](hardware.md). Boot/rootfs story:
 ```bash
 git clone https://github.com/armbian/build armbian-build
 cd armbian-build
-git checkout fc4623bc69888d37eecc1e4026286f634a5258e1   # the pinned ref, see the workflow env
+git checkout 66dbc7af2a77d52ccd3fe2156a55687622848ea3   # the pinned ref, see the workflow env
 cp -r /path/to/armbian-xc3399fr/userpatches/. userpatches/
 ./compile.sh build \
   BOARD=xc3399fr BRANCH=current RELEASE=trixie \
@@ -109,7 +113,7 @@ You don't need a full image build to test a DT change. In a checked-out kernel
 worktree (`cache/sources/linux-kernel-worktree/6.18__rockchip64__arm64`):
 
 ```bash
-cp userpatches/kernel/archive/rockchip64-6.18/dt/rk3399-xc3399fr.dts \
+cp patch/kernel/archive/rockchip64-6.18/dt/rk3399-xc3399fr.dts \
    arch/arm64/boot/dts/rockchip/
 make ARCH=arm64 CROSS_COMPILE=aarch64-linux-gnu- rockchip/rk3399-xc3399fr.dtb
 ```
@@ -121,7 +125,12 @@ reboot (see §5). This is the tight loop used throughout this port's bring-up.
 
 ## 4. Changing the device tree safely
 
-The DTS is `userpatches/kernel/archive/rockchip64-6.18/dt/rk3399-xc3399fr.dts`.
+The device tree lives **upstream** now, at
+`patch/kernel/archive/rockchip64-{6.18,7.2,7.3}/dt/rk3399-xc3399fr.dts` in
+`armbian/build` — this repository no longer carries a copy, so there is nothing
+here to keep in sync. Change it with a PR to `armbian/build`, and keep all three
+kernel versions byte-identical.
+
 Every non-obvious value already carries an in-tree comment explaining the
 evidence for it — **read the comment before changing a value**, and update it if
 you change the value.
@@ -152,10 +161,15 @@ hardware proof:
 - HYM8563 RTC, RT5640 codec, GT911 touch, IR receiver are **absent on purpose**
   (reference-board junk; the RTC was proven absent by an i2c scan).
 
-CodeRabbit flagged three inherited-from-fine3399 nits on the upstream PR
-(missing fixed-regulator voltages, a PMIC-int pinctrl pin, a WiFi IRQ-type
-flag). They are cosmetic and present in mainline `fine3399` too; fix them only
-with a hardware re-test if a maintainer requests it. See PR #10619.
+Review history worth keeping: CodeRabbit flagged three inherited-from-`fine3399`
+nits on the upstream PR. Two were fixed and verified on hardware before the
+merge — the `pmic_int_l` pinctrl pin (corrected to `<1 RK_PC5 RK_FUNC_GPIO
+&pcfg_pull_up>`) and four fixed regulators that were missing
+`regulator-min/max-microvolt`. The third, a WiFi IRQ-type flag, was left alone:
+it matches mainline `fine3399` and every RK3399 reference board, and changing it
+without a reason is how a working port breaks. `vcc_phy` is likewise
+deliberately left without voltage constraints — mainline evb/hugsun/roc,
+`fine3399` and the vendor Android tree all do the same.
 
 ---
 
@@ -268,7 +282,7 @@ PR version of this file. `upstream.md` records the full divergence list.
 |---|---|
 | Image won't build in CI | the failing step's log; check §6 regressions first |
 | Board "stops after U-Boot", SSD LED off | `boot-emmc-usb-ssd.md` — almost always the extlinux/path issue or the wrong USB3 port |
-| USB disk resets / xHCI "HC died" | it's on the OTG port — move it to `vcc5v0_host` (§2) |
+| USB disk resets / xHCI "HC died" | check which port it is on — move it to `vcc5v0_host` / `fe900000.usb` (§2) |
 | A feature regressed after a DT edit | rebuild DTB, diff against `docs/rk3399-xc3399fr.reference.dtb`, re-test (§4–5) |
 | WiFi/BT missing | check the SDIO/uart0 nodes and that `armbian-firmware` is installed |
 | Wrong kernel/U-Boot version | someone floated `ARMBIAN_REF`; re-pin it (§6) |

@@ -43,7 +43,7 @@ Rockchip convention: bank + `RK_Pxy` (e.g. `gpio4 RK_PD1`).
 | Port | Controller | VBUS rail | Use for a 2.5″ SSD? |
 |---|---|---|---|
 | left/back | `fe900000.usb` (usbdrd3_1) | `vcc5v0_host` | **Yes** — 127 GiB sustained read, 0 errors |
-| the other | `fe800000.usb` (usbdrd3_0) | `vcc5v0_otg` | **No** — OTG rail browns the drive out under load; the drive resets ~every 30 s and can hang the xHCI controller |
+| the other | `fe800000.usb` (usbdrd3_0) | `vcc5v0_otg` | **No** — a bus-powered disk here logged 125 disconnect events in one session vs 1 on the other port. Cause not established; see `docs/storage.md` |
 
 Identify at runtime:
 ```bash

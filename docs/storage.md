@@ -62,20 +62,41 @@ with `usb-storage.quirks` is not an exotic workaround - it is the same thing the
 homelab community already does with cables like this, and
 `tools/board/storage-transport.sh bot` does it in one command.
 
-### The port matters more than anything else here
+### Put the disk on the `fe900000.usb` port
 
-The two USB 3.0 ports are **not** interchangeable:
+The two USB 3.0 ports do **not** behave the same with a bus-powered disk. Use
+`fe900000.usb`. That recommendation is firm; the explanation below is not, and
+the difference matters if you are ever tempted to "fix" the other port.
 
-| Port | VBUS switch | Behaviour with a 2.5 inch SSD |
+| Port | VBUS switch | What was measured |
 |---|---|---|
-| `fe800000.usb` (`usbdrd3_0`) | `vcc5v0_otg`, gpio4 `RK_PC6` | Drops the bus / re-enumerates every ~30 s at idle. Under load it kills the **xHCI controller** (`HC died`) after 18-220 GB and needs a reboot. |
-| `fe900000.usb` (`usbdrd3_1`) | `vcc5v0_host`, gpio4 `RK_PD1` | 127 GiB continuous read at 207-252 MB/s: 0 disconnects, 0 `HC died`, 0 I/O errors. |
+| `fe900000.usb` (`usbdrd3_1`) | `vcc5v0_host`, gpio4 `RK_PD1` | 127 GiB continuous read at 207-252 MB/s: 0 disconnects, 0 `HC died`, 0 I/O errors. Every long soak on this port has been clean. |
+| `fe800000.usb` (`usbdrd3_0`) | `vcc5v0_otg`, gpio4 `RK_PC6` | A bus-powered 2.5" HDD on this port logged **125 disconnect events** while an SSD on the other port logged **1**, same boot, same kernel, same bridge model. Any read load restarted the storm within seconds; 120 s fully idle produced nothing. |
 
-The cause is the OTG rail's power switch, not the cable and not the device
-tree - proven by moving the same SSD to the OTG port and watching it take down
-both xHCI controllers. `over_current_count` always reads 0 because the board
-does not wire the fault line back to the SoC, so the kernel never reports
-over-current.
+**What is not established.** An earlier revision of this document said the cause
+was the OTG rail's power switch and called it "proven by moving the same SSD to
+the OTG port". That sentence was wrong - no such swap was ever run. What exists
+is one drive on one port versus a different drive on the other, which confounds
+the port with the drive, the cable, and the drive's current draw. The mechanism
+is unknown, and `over_current_count` reads 0 on both ports because the board
+never wires the fault line back to the SoC, so the kernel can neither confirm
+nor deny an over-current.
+
+**The test that would settle it** has not been run: swap the two cables between
+the two ports and repeat. If the storm follows the port, the port is at fault;
+if it follows the drive, the port is innocent. Until someone does that, treat
+"use `fe900000.usb`" as a rule that works, not as a diagnosis.
+
+Two things that did come out of the investigation and are worth knowing:
+
+* The HDD is healthy - SMART `PASSED`, 0 reallocated, 0 pending, 0
+  uncorrectable, 0 CRC, 0 spin-retry over 5 316 power-on hours. The storm is not
+  a dying disk.
+* **Both bridges report the same USB serial number**, `235678C218CA`, despite
+  being two physically separate cables. The vendor does not assign unique
+  serials. Anything that identifies a disk by USB serial - udev rules,
+  `/dev/disk/by-id`, backup scripts - collides when two of these cables are
+  plugged into one machine. Address disks by UUID.
 
 **Mark the correct port on the enclosure before shipping.** Identify it at
 runtime with:

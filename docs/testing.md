@@ -28,8 +28,9 @@ This matters more than any tuning. See `storage.md` section 1.
 
     readlink -f /sys/class/block/sda/device | grep -oE 'fe[89]00000\.usb'
 
-`fe900000.usb` is correct. `fe800000.usb` is the OTG rail and will kill the
-xHCI controller under sustained load.
+`fe900000.usb` is the port to use. A bus-powered disk on `fe800000.usb` has
+produced a disconnect storm under load; the cause is not established (see
+`docs/storage.md`), but every clean soak in this repo was on `fe900000.usb`.
 
 ## 2. Transport and queue state
 

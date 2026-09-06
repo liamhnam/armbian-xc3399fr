@@ -9,10 +9,15 @@ A production-ready [Armbian](https://www.armbian.com/) board port for the
 ([proembed.com](https://www.proembed.com/)) — a Rockchip **RK3399** board with
 4 GB LPDDR4, eMMC, gigabit Ethernet, dual USB 3.0, HDMI and onboard Wi-Fi/BT.
 
-The port is a thin [userpatches](https://docs.armbian.com/Developer-Guide_Using-Git/#the-userpatches-directory)
-overlay on top of the stock Armbian build framework — **nothing in Armbian is
-forked or modified**. A GitHub Actions workflow builds a flashable image on
-every change.
+**The board is part of Armbian.** The port was merged upstream on 2026-09-06
+([armbian/build#10619](https://github.com/armbian/build/pull/10619) and
+[armbian.github.io#440](https://github.com/armbian/armbian.github.io/pull/440)),
+so Armbian builds and publishes rolling images for it directly. This repository
+is what remains: a thin
+[userpatches](https://docs.armbian.com/Developer-Guide_Using-Git/#the-userpatches-directory)
+overlay carrying the handful of choices that are specific to the units we ship,
+plus the hardware documentation and tooling — **nothing in Armbian is forked or
+modified**. A GitHub Actions workflow builds a flashable image on every change.
 
 > **Status:** hardware-validated. Boots from SD, eMMC, or eMMC-bootloader +
 > USB-SSD-rootfs. Every advertised interface has been exercised on a real board.
@@ -22,9 +27,17 @@ every change.
 
 ## Quick start
 
-1. Grab the latest `*.img.xz` from the [Releases](../../releases) page (or the
-   artifact of the newest [Actions](../../actions) run), and verify it against
-   the accompanying `.sha`.
+1. Get an image. Two sources, both valid:
+   * **This repository** — the latest `*.img.xz` from the
+     [Releases](../../releases) page (or the artifact of the newest
+     [Actions](../../actions) run). Pinned framework, `current` kernel only,
+     watchdog enabled. This is what ships on units we sell.
+   * **Armbian's own build** — `Armbian_community_*_Xc3399fr_*` from
+     [armbian/community releases](https://github.com/armbian/community/releases)
+     or the board's armbian.com download page. Stock, unpinned, offers a desktop
+     variant. See [Upstream status](#upstream-status) for availability.
+
+   Verify whichever you take against its `.sha`.
 2. Flash it to a micro-SD card with [Etcher](https://etcher.balena.io/) or
    Raspberry Pi Imager.
 3. Insert the card and power the board. First boot resizes the rootfs and asks
@@ -45,13 +58,14 @@ Pick your USB SSD as the target and choose
 and reboot — U-Boot and `/boot` stay on the eMMC, the root filesystem runs from
 the SSD. No manual fix-up is needed (see [Design notes](#why-bootscr-and-not-extlinux)).
 
-> ⚠️ **Plug the SSD into the correct USB 3.0 port.** The two USB3 ports are
-> *not* interchangeable for a bus-powered 2.5″ SSD — one is powered from the
-> SoC OTG rail and browns the drive out under load. Use the **`vcc5v0_host`**
-> port (`fe900000.usb`). Confirm at runtime:
+> ⚠️ **Plug the SSD into the `fe900000.usb` port.** The two USB3 ports do not
+> behave the same with a bus-powered 2.5″ disk: on `fe800000.usb` a disk logged
+> 125 disconnect events in one session while a disk on `fe900000.usb` logged 1.
+> Why is not established — see [`docs/storage.md`](docs/storage.md) — but the
+> rule holds. Confirm at runtime:
 > ```bash
 > readlink -f /sys/class/block/sda/device | grep -oE 'fe[89]00000\.usb'
-> # fe900000.usb = good   |   fe800000.usb = weak, do not use for a disk
+> # fe900000.usb = use this   |   fe800000.usb = do not put a disk here
 > ```
 > Mark the good port on the enclosure before shipping units.
 
@@ -113,9 +127,10 @@ never as the sole justification for a change. Highlights:
 - **Hardware watchdog handed to systemd** (`RuntimeWatchdogSec=30s`) for
   unattended 24/7 operation.
 
-The full annotated source is
-[`userpatches/kernel/archive/rockchip64-6.18/dt/rk3399-xc3399fr.dts`](userpatches/kernel/archive/rockchip64-6.18/dt/rk3399-xc3399fr.dts);
-every non-obvious value carries an in-tree comment explaining the evidence.
+The device tree now lives upstream. The full annotated source is
+[`patch/kernel/archive/rockchip64-6.18/dt/rk3399-xc3399fr.dts`](https://github.com/armbian/build/blob/main/patch/kernel/archive/rockchip64-6.18/dt/rk3399-xc3399fr.dts)
+in `armbian/build`; every non-obvious value carries an in-tree comment
+explaining the evidence.
 
 ## Why boot.scr and not extlinux
 
@@ -166,7 +181,7 @@ this repo’s `userpatches/` onto a pinned Armbian checkout:
 ```bash
 git clone https://github.com/armbian/build armbian-build
 cd armbian-build
-git checkout fc4623bc69888d37eecc1e4026286f634a5258e1     # pinned; see the workflow
+git checkout 66dbc7af2a77d52ccd3fe2156a55687622848ea3     # pinned; see the workflow
 cp -r ../armbian-xc3399fr/userpatches/. userpatches/
 ./compile.sh build \
   BOARD=xc3399fr BRANCH=current RELEASE=trixie \
@@ -181,13 +196,11 @@ killer during the kernel compile.
 
 ```
 userpatches/
-  config/boards/xc3399fr.csc                board definition + the two product hooks
-  kernel/archive/rockchip64-{6.18,7.2,7.3}/dt/
-    rk3399-xc3399fr.dts                     device tree, byte-identical to PR #10619
+  config/boards/xc3399fr.csc                product overlay: KERNEL_TARGET + watchdog hook
 .github/workflows/build-image.yml           CI/CD: build + release
 docs/
   storage.md                                USB-SATA bridge, UAS vs BOT, all measurements
-  upstream.md                               what goes to Armbian vs what stays here
+  upstream.md                               what is upstream vs what stays here
   install.md                                boot on eMMC + system on USB SSD, customer flow
   hardware.md                               pin-level hardware notes
   testing.md                                how to reproduce every measurement
@@ -200,25 +213,50 @@ tools/
   board/                                    on-board benchmark / transport / install helpers
 ```
 
+The board config and the device tree are **no longer duplicated here** — they
+live in `armbian/build` since #10619 merged. Armbian sources the upstream board
+file first and this repo's `userpatches` copy second, so the overlay only needs
+to carry what differs for the units we ship.
+
 Start with **[docs/upstream.md](docs/upstream.md)** for the split between this
-repository and the Armbian PR, and **[docs/storage.md](docs/storage.md)** for
-the storage decision — the one choice that most affects how these units behave
-in the field.
+repository and Armbian, and **[docs/storage.md](docs/storage.md)** for the
+storage decision — the one choice that most affects how these units behave in
+the field.
 
 ## Upstream status
 
+**Merged.** The board is part of Armbian as of 2026-09-06.
+
 | PR | Contents | State |
 |---|---|---|
-| [armbian/build#10619](https://github.com/armbian/build/pull/10619) | board config + device trees | open, mergeable, awaiting review |
-| [armbian/armbian.github.io#440](https://github.com/armbian/armbian.github.io/pull/440) | board assets | open — **this is the blocker** for the check on #10619 |
+| [armbian/build#10619](https://github.com/armbian/build/pull/10619) | board config + device trees for rockchip64 6.18 / 7.2 / 7.3 | **merged** 2026-09-06, commit [`66dbc7af`](https://github.com/armbian/build/commit/66dbc7af2a77d52ccd3fe2156a55687622848ea3) |
+| [armbian/armbian.github.io#440](https://github.com/armbian/armbian.github.io/pull/440) | board photo + ProEmbed vendor logo | **merged** 2026-09-06 |
 
-## Contributing / TODO
+Because the board is a `.csc` (community-maintained) config, Armbian builds and
+publishes rolling images for it automatically — no further action is needed to
+get an official download. Boards merged shortly before this one took **6–9 days**
+from merge to their first published image, so the first official
+`Armbian_community_*_Xc3399fr_*` build is expected around **2026-09-12 to
+2026-09-15**, in the [`armbian/community`](https://github.com/armbian/community/releases)
+releases and on the board's armbian.com download page.
 
-- Get `armbian.github.io#440` reviewed; it is the only failing check on the
-  board PR.
-- Optional LVDS output via the TC358775 DSI-to-LVDS bridge (needs real panel
-  timings).
-- Longer multi-day soak of the USB-SSD path.
+Building this repository's own image stays useful regardless: it is pinned,
+reproducible, ships `current` only, and carries the watchdog hook.
+
+## Scope
+
+**In scope and done:** boot from SD / eMMC / eMMC-bootloader + USB-SSD rootfs,
+Ethernet, Wi-Fi, Bluetooth, HDMI (incl. audio), USB 3.0, eMMC HS400 ES, micro-SD
+UHS, fan, LEDs, watchdog, thermals.
+
+**Out of scope — deliberately not supported:** LVDS output via the TC358775
+DSI-to-LVDS bridge, MIPI camera, and analog audio. None are fitted or needed on
+the units this port exists for. The RT5640 codec, HYM8563 RTC and GT911 touch
+controller in the vendor device tree were proven absent on this hardware and are
+removed on purpose; do not re-add them without an I²C probe that answers.
+
+**Still open:** a longer multi-day soak of the USB-SSD path, and the cable/port
+swap test described in [`docs/storage.md`](docs/storage.md).
 
 ## License
 

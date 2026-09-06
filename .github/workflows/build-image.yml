@@ -38,7 +38,7 @@ concurrency:
 env:
   # Pin the Armbian framework for reproducible images. Bump deliberately.
   ARMBIAN_REPO: 'https://github.com/armbian/build'
-  ARMBIAN_REF: 'fc4623bc69888d37eecc1e4026286f634a5258e1'
+  ARMBIAN_REF: '66dbc7af2a77d52ccd3fe2156a55687622848ea3'
   BOARD: 'xc3399fr'
   BRANCH: 'current'
 
@@ -86,8 +86,10 @@ jobs:
           cp -rv board-port/userpatches/. armbian-build/userpatches/
           echo "== board config =="
           cat armbian-build/userpatches/config/boards/${BOARD}.csc
-          echo "== device tree present =="
-          ls -l armbian-build/userpatches/kernel/archive/rockchip64-6.18/dt/
+          echo "== device tree comes from upstream =="
+          ls -l armbian-build/patch/kernel/archive/rockchip64-6.18/dt/rk3399-xc3399fr.dts
+          echo "== upstream board config it overlays =="
+          cat armbian-build/config/boards/${BOARD}.csc
 
       - name: Build image
         working-directory: armbian-build

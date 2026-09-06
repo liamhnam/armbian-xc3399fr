@@ -1,40 +1,41 @@
-# Rockchip RK3399 hexa core 4GB LPDDR4 eMMC GBE 2x USB3 HDMI WiFi/BT
+# Xiangcheng XC3399FR v1.1a (proembed.com) - product overlay.
 #
-# Product build for Xiangcheng XC3399FR v1.1a (proembed.com).
-# Upstream submission: https://github.com/armbian/build/pull/10619
+# The board itself lives upstream since armbian/build#10619 merged
+# (2026-09-06, commit 66dbc7af). Armbian sources config/boards/xc3399fr.csc
+# first and this file second, so everything not set here - BOARD_NAME,
+# BOARDFAMILY, BOOTCONFIG, BOOT_FDT_FILE, the device tree, all of it - comes
+# from upstream and stays in step with it automatically.
 #
-# This file intentionally stays as close as possible to the upstream board
-# config. The only addition is the watchdog hook at the bottom, which exists
-# because these units are sold as always-on NAS / Docker / home-server boxes
-# that must recover from a kernel hang unattended. Anything that is not specific
-# to that product belongs upstream, not here.
-BOARD_NAME="XC3399FR"
-BOARD_VENDOR="proembed"
-BOARDFAMILY="rockchip64"
-BOARD_MAINTAINER="liamhnam"
-INTRODUCED="2021"
-BOOTCONFIG="fine3399-rk3399_defconfig"
-# Product images ship 'current' only, on purpose: customers get the LTS kernel
-# the board was validated on. Upstream additionally offers edge/bleedingedge.
-KERNEL_TARGET="current"
-KERNEL_TEST_TARGET="current"
-FULL_DESKTOP="yes"
-BOOT_LOGO="desktop"
-BOOT_FDT_FILE="rockchip/rk3399-xc3399fr.dtb"
-BOOT_SCENARIO="only-blobs"
+# Only what is true of the units we ship belongs below. Anything true of the
+# board in general is a bug here and belongs in a PR to armbian/build.
 
-# Deliberately no SRC_EXTLINUX here, unlike fine3399 which this device tree was
-# derived from. boot.scr + armbianEnv.txt is what makes the stock
-# armbian-install "boot from eMMC, system on this disk" flow work on this
-# board: the rockchip64 boot script resolves every path through ${prefix}, so
-# one script boots whether /boot is a directory (SD) or its own partition
-# (eMMC). Worth revisiting once armbian/configng#985 is merged.
+# Product images ship 'current' only, on purpose: customers get the LTS kernel
+# the board was validated on. Upstream offers edge/bleedingedge as well so
+# testers can use them; we do not want a customer box tracking a moving kernel.
+KERNEL_TARGET="current"
+
+function post_family_tweaks__xc3399fr_watchdog() {
+	# The RK3399 has a Synopsys DesignWare watchdog and the kernel exposes it
+	# as /dev/watchdog0, but nothing feeds it by default, so a kernel hang on
+	# an unattended 24/7 unit is never recovered. Hand it to systemd.
+	#
+	# No Armbian board sets RuntimeWatchdogSec, so this is not a convention
+	# and deliberately did not go upstream - but it is right for a box sold as
+	# an always-on NAS / Docker / home server.
+	display_alert "$BOARD" "enabling the hardware watchdog for 24/7 operation" "info"
+	mkdir -p "${SDCARD}"/etc/systemd/system.conf.d
+	cat <<- WATCHDOG > "${SDCARD}"/etc/systemd/system.conf.d/10-xc3399fr-watchdog.conf
+		[Manager]
+		RuntimeWatchdogSec=30s
+		RebootWatchdogSec=10min
+	WATCHDOG
+}
 
 # NOTE ON usbstoragequirks - deliberately NOT set here.
 #
 # An earlier revision pinned the OWC 7825:a2a4 USB-SATA bridge to BOT, because
-# that bridge has a genuinely broken UAS implementation (docs/storage.md §6:
-# over 20 warm reboots on two different cables, 7 stalled ~30 s and one never
+# that bridge has a genuinely broken UAS implementation (docs/storage.md: over
+# 20 warm reboots on two different cables, 7 stalled ~30 s and one never
 # brought the disk up at all, needing a power cycle).
 #
 # That line is gone because units no longer ship with that cable. Hardcoding a
@@ -51,19 +52,6 @@ BOOT_SCENARIO="only-blobs"
 # else behaves as it would on any other distro, and docs/storage.md tells the
 # user how to diagnose it and how to flip transports with
 # tools/board/storage-transport.sh.
-
-function post_family_tweaks__xc3399fr_watchdog() {
-	# The RK3399 has a Synopsys DesignWare watchdog and the kernel exposes it
-	# as /dev/watchdog0, but nothing feeds it by default, so a kernel hang on
-	# an unattended 24/7 unit is never recovered. Hand it to systemd.
-	display_alert "$BOARD" "enabling the hardware watchdog for 24/7 operation" "info"
-	mkdir -p "${SDCARD}"/etc/systemd/system.conf.d
-	cat <<- WATCHDOG > "${SDCARD}"/etc/systemd/system.conf.d/10-xc3399fr-watchdog.conf
-		[Manager]
-		RuntimeWatchdogSec=30s
-		RebootWatchdogSec=10min
-	WATCHDOG
-}
 
 # NOTE ON smartd - deliberately NOT configured here.
 #

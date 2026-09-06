@@ -7,25 +7,63 @@ that are true of *the product we sell* live here.
     generic truth about the XC3399FR  ->  armbian/build
     true only for units we ship       ->  this repository
 
-Keeping that line sharp is what makes the port cheap to maintain: when the
-upstream PR merges, most of this repository can be deleted.
+Keeping that line sharp is what made the port cheap: when the upstream PR
+merged, most of this repository simply went away.
 
 ---
 
-## 1. What is upstream right now
+## 1. What is upstream
 
-| PR | Repo | Contents | State |
+Both PRs merged on **2026-09-06**.
+
+| PR | Repo | Contents | Merged |
 |---|---|---|---|
-| [#10619](https://github.com/armbian/build/pull/10619) | `armbian/build` | `config/boards/xc3399fr.csc` + `rk3399-xc3399fr.dts` for rockchip64 6.18 / 7.2 / 7.3 | open, mergeable, awaiting review |
-| [#440](https://github.com/armbian/armbian.github.io) | `armbian/armbian.github.io` | board assets (photo, description) | open, awaiting review |
+| [#10619](https://github.com/armbian/build/pull/10619) | `armbian/build` | `config/boards/xc3399fr.csc` + `rk3399-xc3399fr.dts` for rockchip64 6.18 / 7.2 / 7.3 | 08:59 UTC, commit `66dbc7af`, approved by `EvilOlaf`, merged by `igorpecovnik` |
+| [#440](https://github.com/armbian/armbian.github.io/pull/440) | `armbian/armbian.github.io` | board photo + ProEmbed vendor logo | 07:23 UTC, approved and merged by `igorpecovnik` |
 
-`#440` is the blocker, not the code. The only failing check on `#10619` is
-`Verify assets for newly added boards`, which fails until the assets exist in
-the website repo. Nothing in the board port itself is contested.
+The order mattered: `#440` had to land first, because the only failing check on
+the board PR was `Verify assets for newly added boards`, which fails until the
+assets exist in the website repo. Nothing in the port itself was ever contested;
+zero review threads were left unresolved.
 
-**Do not add anything to #10619 to "improve" it.** It is four files - one 20
-line board config and three identical device trees - which is exactly the shape
-Armbian reviewers expect for a board port. Every extra line is review friction.
+### What that gets, automatically
+
+`.csc` means **community-maintained**. Per Armbian's
+[board support rules](https://docs.armbian.com/contribute/board-support-rules/),
+that tier is entitled to published images through the mirror network and daily
+rolling builds — with no further action from us. The pipeline classifies the
+board from the config file alone: `.csc` -> `community-maintained`, arm64 with
+video output -> `community-maintained-fast-hdmi`, and `KERNEL_TEST_TARGET`
+pins the branch to `current`. The board is in neither automation blacklist.
+
+Expected output, matching what the sibling `fine3399` board gets:
+
+    Armbian_community_<ver>_Xc3399fr_trixie_current_<kver>_minimal.img.xz
+    Armbian_community_<ver>_Xc3399fr_<rel>_current_<kver>_xfce_desktop.img.xz
+
+Timing, measured from three boards merged just before this one:
+`xiaomi-sheng` took 6 days from merge to first published image,
+`nanopi-neo3-plus` 8 days, `lubancat-4` at most 9. So expect the first official
+image around **2026-09-12 to 2026-09-15** in the
+[`armbian/community`](https://github.com/armbian/community/releases) releases.
+
+### One thing that needs a human
+
+An hourly bot job, `Data: Sync maintainers`, regenerates every board's
+`BOARD_MAINTAINER` from Armbian's own maintainer database and opens a PR with
+the result — [#10642](https://github.com/armbian/build/pull/10642) is the one
+that blanks ours. It is not a rejection: the database simply has no entry for
+`liamhnam` yet, and Armbian's rules require a maintainer to
+[reveal their identity](https://www.armbian.com/update-data/) to project
+management even when operating under a pseudonym.
+
+**Losing `BOARD_MAINTAINER` does not stop images from being built** — the build
+matrix is generated from `find config/boards/*.{conf,wip,tvb,csc}` with no
+maintainer filter; the maintainer list only populates a dropdown for manual
+one-off builds. What it costs is attribution, the `armbian.com/authors` listing,
+and being review-requested when someone touches the board. Register at
+armbian.com/update-data to have the next hourly sync restore the name instead of
+clearing it.
 
 ---
 
@@ -76,21 +114,28 @@ A ready-to-send draft is kept outside this repository at
 
 ---
 
-## 3. Divergence from upstream, and why each item exists
+## 3. What still lives here, and why
 
-The device trees in `userpatches/kernel/` are **byte-identical** to the ones in
-PR #10619. Keep them that way. If you change one, change both, or the port
-starts drifting and the eventual merge becomes a merge conflict.
+The device trees are **gone from this repository**. They come from
+`armbian/build` now. Do not re-add a copy: two copies drift, and the whole point
+of upstreaming was to stop maintaining them here. Device-tree changes go to
+`armbian/build` as a PR, applied identically to all three kernel branches.
 
-`userpatches/config/boards/xc3399fr.csc` differs from upstream in exactly four
-ways, all deliberate:
+`userpatches/config/boards/xc3399fr.csc` is an **overlay**, not a replacement.
+Armbian's `config_source_board_file()` collects the board file from
+`${SRC}/config/boards` *and* `${USERPATCHES_PATH}/config/boards` and sources
+both in that order, so the overlay only has to carry what differs:
 
-| Difference | Reason |
+| Item | Reason |
 |---|---|
-| `KERNEL_TARGET="current"` (upstream: `current,edge,bleedingedge`) | Customers get the LTS kernel the board was validated on. Upstream offers the others so testers can use them. |
-| `post_family_tweaks__xc3399fr_watchdog` | The RK3399 watchdog exists and the kernel exposes `/dev/watchdog0`, but nothing feeds it. On an unattended 24/7 box a kernel hang would otherwise be permanent. **No Armbian board sets `RuntimeWatchdogSec`** - it is not a convention, so it does not belong in the board PR, but it is right for this product. |
-| Comment block explaining why no smartd config is shipped | Documentation only. An earlier revision configured `smartd` for the USB-SATA bridge; it was removed once testing showed the config did not actually work and could not be made generic (`install.md`). |
-| Comment block explaining why `usbstoragequirks` is unset | Documentation only. There is no third hook: an earlier revision pinned the formerly-bundled `7825:a2a4` bridge to BOT, and it was removed when the cable stopped shipping. |
+| `KERNEL_TARGET="current"` (upstream: `current,edge,bleedingedge`) | Customers get the LTS kernel the board was validated on. Upstream offers the others so testers can use them; a customer box must not track a moving kernel. |
+| `post_family_tweaks__xc3399fr_watchdog` | The RK3399 watchdog exists and the kernel exposes `/dev/watchdog0`, but nothing feeds it. On an unattended 24/7 box a kernel hang would otherwise be permanent. **No Armbian board sets `RuntimeWatchdogSec`** - it is not a convention, so it did not belong in the board PR, but it is right for this product. |
+| Comment block on why no smartd config ships | Documentation only. An earlier revision configured `smartd` for the USB-SATA bridge; it was removed once testing showed the config did not work and could not be made generic (`install.md`). |
+| Comment block on why `usbstoragequirks` is unset | Documentation only. An earlier revision pinned the formerly-bundled `7825:a2a4` bridge to BOT; it went away when the cable stopped shipping. |
+
+Everything else - `BOARD_NAME`, `BOARDFAMILY`, `BOOTCONFIG`, `BOOT_FDT_FILE`,
+`BOOT_SCENARIO`, `FULL_DESKTOP` - is inherited and stays in step with upstream
+automatically. Adding any of them back here would silently pin a stale value.
 
 One detail about `usbstoragequirks` is easy to get wrong, and was in fact wrong
 here for a while. `armbian-hardware-optimization` installs Armbian's own UAS
@@ -109,15 +154,20 @@ Norelsys entries alongside yours - `tools/board/storage-transport.sh` does.
 
 ---
 
-## 4. When PR #10619 merges
+## 4. Keeping in step from here
 
-1. Delete `userpatches/kernel/archive/rockchip64-*/dt/rk3399-xc3399fr.dts` -
-   the device tree then comes from Armbian.
-2. Reduce `userpatches/config/boards/xc3399fr.csc` to the watchdog hook plus the
-   `KERNEL_TARGET` override. The build framework merges `userpatches` over the
-   shipped board config, so the rest is redundant.
-3. Keep every document in `docs/`. The measurements and the refuted hypotheses
-   are the part that took the time; they do not become obsolete when the code
-   moves upstream.
-Nothing else is pending upstream. Section 2 records the one change that was
-considered and deliberately not sent.
+The framework checkout is pinned in `.github/workflows/build-image.yml`
+(`ARMBIAN_REF`), currently `66dbc7af` - the commit that merged the board. Bump
+it deliberately, not on a schedule: a pinned ref is what makes an image
+reproducible, and a customer box is not the place to discover an upstream
+regression. When bumping, rebuild and re-run `docs/testing.md` before shipping.
+
+Still true, and worth not forgetting:
+
+* **Keep every document in `docs/`.** The measurements and the refuted
+  hypotheses are the part that took the time; they did not become obsolete when
+  the code moved upstream.
+* **Nothing else is pending upstream.** Section 2 records the one change that
+  was considered and deliberately not sent.
+* If a future device-tree fix lands upstream, this repository needs no change at
+  all - the next build picks it up when `ARMBIAN_REF` is bumped.
